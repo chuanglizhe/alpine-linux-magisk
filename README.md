@@ -20,7 +20,7 @@
 
 ## 安装方法
 
-1. 下载 `alpine-linux-v1.2.1.zip`
+1. 下载最新版本模块包
 2. Magisk Manager 中选择"从本地安装"
 3. 重启设备
 
@@ -51,7 +51,7 @@ alpine shell
 | 命令 | 说明 |
 |------|------|
 | `alpine download` | 自动下载安装 |
-| `alpine download aarch64` | 指定架构 |
+| `alpine download aarch64` | 指定架构下载 |
 | `alpine install <文件>` | 从本地安装 |
 | `alpine mirror tuna` | 设置镜像源 |
 
@@ -93,12 +93,14 @@ alpine shell
 
 ### 软件安装
 
-| 命令 | 说明 |
-|------|------|
-| `alpine install-pkg` | 安装基础工具 |
-| `alpine install-pkg dev` | 安装开发环境 |
-| `alpine install-pkg net` | 安装网络工具 |
-| `alpine install-pkg all` | 安装全部 |
+| 命令 | 说明 | 安装内容 |
+|------|------|----------|
+| `alpine install-pkg` | 安装基础工具 | bash, coreutils, vim, curl, wget |
+| `alpine install-pkg dev` | 安装开发环境 | bash, vim, curl, git, python3, nodejs, gcc |
+| `alpine install-pkg net` | 安装网络工具 | bash, vim, curl, openssh, openssl |
+| `alpine install-pkg tools` | 安装常用工具 | bash, vim, curl, htop, tree, rsync |
+| `alpine install-pkg all` | 安装全部软件 | bash, vim, curl, git, python3, nodejs, gcc, openssh, htop, tree, rsync |
+| `alpine install-pkg <包名>` | 安装指定软件包 | 自定义 |
 
 ## 使用示例
 
@@ -124,6 +126,8 @@ alpine service start myapp
 | `/data/alpine_linux/rootfs` | Alpine rootfs |
 | `/data/alpine_linux/services` | 服务配置文件 |
 | `/mnt/sdcard` | Android 存储（Alpine 内） |
+| `/mnt/external_sd` | 外置 SD 卡（Alpine 内） |
+| `/mnt/android` | Android 系统根目录（Alpine 内） |
 
 ## 镜像源
 
@@ -132,28 +136,6 @@ alpine service start myapp
 | tuna | 清华大学（默认） |
 | ustc | 中科大 |
 | official | 官方源 |
-
-## 更新日志
-
-### v1.3.1
-- 代码优化，减少 178 行（725→547）
-- 合并 SSH 相关函数
-- 合并模块更新函数
-- 精简帮助文本
-- 保持可读性和稳定性
-
-### v1.3.0
-- 精简代码，移除旧版本兼容逻辑
-- 统一使用 service 命令管理自启动
-- 启动时自动启动已启用服务
-
-### v1.2.0
-- 添加服务管理功能
-- 统一使用 service 命令
-- 预设常用应用配置
-
-### v1.1.0
-- 基础功能稳定版
 
 ## 许可证
 
