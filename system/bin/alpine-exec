@@ -1,0 +1,25 @@
+#!/system/bin/sh
+#====================================================
+# Alpine Linux Chroot - Exec Command
+#====================================================
+
+MODDIR="${0%/*}"
+
+# 加载公共函数
+if [ -f "$MODDIR/../common.sh" ]; then
+    . "$MODDIR/../common.sh"
+elif [ -f "/data/adb/modules/alpine_linux/common.sh" ]; then
+    . "/data/adb/modules/alpine_linux/common.sh"
+else
+    echo "错误: 无法加载 common.sh"
+    exit 1
+fi
+
+# 执行命令
+if [ -z "$1" ]; then
+    echo "用法: alpine-exec <command>"
+    echo "示例: alpine-exec apk update"
+    exit 1
+fi
+
+alpine_exec "$@"

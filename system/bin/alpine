@@ -1,0 +1,92 @@
+#!/system/bin/sh
+#====================================================
+# Alpine Linux - Main Control Script
+#====================================================
+
+MODDIR="${0%/*}"
+
+# 加载公共函数
+if [ -f "$MODDIR/../common.sh" ]; then
+    . "$MODDIR/../common.sh"
+elif [ -f "/data/adb/modules/alpine_linux/common.sh" ]; then
+    . "/data/adb/modules/alpine_linux/common.sh"
+else
+    echo "错误: 无法加载 common.sh"
+    exit 1
+fi
+
+# 显示帮助
+show_help() {
+    cat << EOF
+Alpine Linux 控制工具
+
+用法: alpine <命令> [参数]
+
+容器管理:
+  start                     启动 Alpine Linux
+  stop                      停止 Alpine Linux
+  restart                   重启 Alpine Linux
+  status                    查看运行状态
+  shell                     进入 Alpine Linux shell
+  exec <cmd>                在 Alpine Linux 中执行命令
+
+rootfs 管理:
+  download [arch] [ver] [mirror]  自动下载并安装 rootfs
+  install <file>            从本地文件安装 rootfs
+  mirror <name>             设置 APK 镜像源
+
+软件安装:
+  install-pkg [basic|dev|net|tools|all]  安装软件包
+
+服务管理:
+  service add <名称> [命令]   创建服务并启用自启
+  service list                列出所有服务
+  service start <名称>        启动服务
+  service stop <名称>         停止服务
+  service status <名称>       查看状态
+  service enable <名称>       启用开机自启
+  service disable <名称>      禁用开机自启
+  service logs <名称>         查看日志
+  service rm <名称>           删除服务
+
+SSH 服务:
+  ssh [端口] [密码]           一键配置 SSH
+  ssh start|stop|restart|status  管理 SSH
+
+模块管理:
+  module-upgrade [zip]       升级模块
+
+其他:
+  log                        查看日志
+  help                       显示帮助
+
+示例:
+  alpine download
+  alpine start
+  alpine service add openclaw
+  alpine shell
+
+ROOTFS 路径: $RF
+EOF
+}
+
+# 主逻辑
+case "$1" in
+    start) alpine_start ;;
+    stop) alpine_stop ;;
+    restart) alpine_stop; sleep 2; alpine_start ;;
+    status) alpine_status ;;
+    shell) alpine_shell ;;
+    exec) shift; alpine_exec "$@" ;;
+    download) shift; alpine_download "$@" ;;
+    install) shift; alpine_install "$@" ;;
+    install-pkg) shift; alpine_install_packages "$@" ;;
+    service) shift; alpine_service "$@" ;;
+    ssh) shift; alpine_ssh "$@" ;;
+    mirror) shift; alpine_set_mirror "$@" ;;
+    module-upgrade) shift; alpine_update "$@" ;;
+    module-version) cat /data/adb/modules/alpine_linux/module.prop 2>/dev/null || echo "模块未安装" ;;
+    log) [ -f "$LOG" ] && tail -n 50 "$LOG" || echo "日志文件不存在" ;;
+    help|--help|-h|"") show_help ;;
+    *) err "未知命令: $1"; show_help; exit 1 ;;
+esac
