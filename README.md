@@ -146,4 +146,4 @@ MIT License
 | 平台 | 地址 |
 |------|------|
 | GitHub | https://github.com/chuanglizhe/alpine-linux-magisk |
-| Gitee | https://gitee.com/tianyaduanty_admin/alpine-linux-magisk |
+| Gitee | https://gitee.com/chuanglizhe/alpine-linux-magisk |
