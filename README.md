@@ -140,3 +140,10 @@ alpine service start myapp
 ## 许可证
 
 MIT License
+
+## 项目地址
+
+| 平台 | 地址 |
+|------|------|
+| GitHub | https://github.com/chuanglizhe/alpine-linux-magisk |
+| Gitee | https://gitee.com/tianyaduanty_admin/alpine-linux-magisk |
