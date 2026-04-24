@@ -1,20 +1,33 @@
 #!/system/bin/sh
-# Alpine Linux - Common Functions Library v1.3.1
+# Alpine Linux - Common Functions Library v1.3.2 (Patched)
 
 #=======================================
 # 路径配置
 #=======================================
 R="/data/alpine_linux"
 RF="$R/rootfs"
-PID="$R/alpine.pid"
 SVC="$R/services"
 LOG="$R/alpine.log"
+
+#=======================================
+# 公共环境变量
+#=======================================
+CHROOT_ENV="HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=xterm-256color LANG=C.UTF-8"
 
 #=======================================
 # 颜色和日志
 #=======================================
 Rd='\033[0;31m'; Gr='\033[0;32m'; Yw='\033[1;33m'; Nc='\033[0m'
-log() { echo -e "${Gr}[$1]${Nc} $2" | tee -a "$LOG"; }
+log() {
+    mkdir -p "${LOG%/*}" 2>/dev/null
+    if [ -f "$LOG" ]; then
+        local lines=$(wc -l < "$LOG" 2>/dev/null)
+        [ -n "$lines" ] && [ "$lines" -gt 1000 ] && mv "$LOG" "$LOG.1" 2>/dev/null
+    fi
+    local msg="$(date '+%Y-%m-%d %H:%M:%S') [$1] $2"
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') ${Gr}[$1]${Nc} $2"
+    echo "$msg" >> "$LOG"
+}
 err() { log ERROR "$1"; }
 wrn() { log WARN "$1"; }
 inf() { log INFO "$1"; }
@@ -33,7 +46,9 @@ ck() {
 #=======================================
 # 运行状态
 #=======================================
-run() { [ -f "$PID" ] && mountpoint -q "$RF/proc" 2>/dev/null; }
+run() {
+    mountpoint -q "$RF/proc" 2>/dev/null
+}
 
 #=======================================
 # 挂载管理
@@ -69,52 +84,66 @@ net() {
 }
 
 #=======================================
-# 存储挂载
+# 存储挂载（修复：移除Android系统目录挂载）
 #=======================================
 smnt() {
     inf "挂载存储..."
-    mkdir -p "$RF/mnt/sdcard" "$RF/mnt/external_sd" "$RF/mnt/android"
+    mkdir -p "$RF/mnt/sdcard" "$RF/mnt/external_sd"
     [ -d /sdcard ] && mount --bind /sdcard "$RF/mnt/sdcard" 2>/dev/null
     local sd=""; [ -d /storage/external_SD ] && sd="/storage/external_SD"; [ -d /external_sd ] && sd="/external_sd"
     [ -n "$sd" ] && mount --bind "$sd" "$RF/mnt/external_sd" 2>/dev/null
-    mount --bind / "$RF/mnt/android" 2>/dev/null && mount -o remount,ro "$RF/mnt/android" 2>/dev/null
+    return 0
 }
 
 sumnt() {
-    for m in sdcard external_sd android; do
+    for m in sdcard external_sd; do
         mountpoint -q "$RF/mnt/$m" 2>/dev/null && umount -l "$RF/mnt/$m" 2>/dev/null
     done
 }
 
 #=======================================
-# 容器启动/停止
+# 容器启动/停止（修复：完善错误处理）
 #=======================================
 alpine_start() {
     ck || { err "rootfs 不存在"; inf "请先运行: alpine download"; return 1; }
     run && { wrn "已在运行"; return 0; }
     inf "启动 Alpine Linux..."
     mkdir -p "$R" && chmod 755 "$R" "$RF"
-    mnt || return 1; net; smnt
-    echo $$ > "$PID"
+    mnt || { err "挂载失败"; return 1; }
+    net || { umnt; err "网络配置失败"; return 1; }
+    smnt
     inf "启动完成"
     alpine_service_start_all
 }
 
 alpine_stop() {
     run || { wrn "未运行"; return 0; }
-    inf "停止..."; sumnt; umnt; rm -f "$PID"; inf "已停止"
+    inf "停止 Alpine Linux..."
+    inf "终止进程..."
+    # 终止所有以 rootfs 为根目录的进程
+    local rf_path=$(echo "$RF" | sed 's#/$##')
+    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+        [ -L "/proc/$pid/root" ] || continue
+        local root=$(readlink "/proc/$pid/root" 2>/dev/null | sed 's#/$##')
+        [ "$root" = "$rf_path" ] && kill -9 "$pid" 2>/dev/null
+    done
+    # 再用 fuser 确保清理干净
+    fuser -k "$RF" 2>/dev/null
+    fuser -k "$RF"/mnt/* 2>/dev/null
+    sleep 1
+    sumnt; umnt
+    inf "已停止"
 }
 
 #=======================================
-# 执行命令
+# 执行命令（修复：使用公共环境变量）
 #=======================================
 alpine_exec() {
     ck || { err "rootfs 不存在"; return 1; }
-    local env="HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=xterm-256color LANG=C.UTF-8"
     if [ -z "$1" ]; then
-        chroot "$RF" /bin/sh -c "export $env; exec /bin/sh"
+        chroot "$RF" /bin/sh -c "export $CHROOT_ENV; exec /bin/sh"
     else
-        chroot "$RF" /bin/sh -c "export $env; $*"
+        chroot "$RF" /bin/sh -c "export $CHROOT_ENV; $*"
     fi
 }
 
@@ -136,7 +165,7 @@ alpine_status() {
 }
 
 #=======================================
-# 架构检测
+# 架构检测（修复：未知架构报错）
 #=======================================
 arch() {
     local a=$(uname -m 2>/dev/null); [ -z "$a" ] && a=$(getprop ro.product.cpu.abi 2>/dev/null)
@@ -146,7 +175,7 @@ arch() {
         arm*|armeabi) echo "armhf" ;;
         x86_64|amd64) echo "x86_64" ;;
         x86|i686) echo "x86" ;;
-        *) echo "$a" ;;
+        *) err "未知架构: $a"; return 1 ;;
     esac
 }
 
@@ -162,19 +191,25 @@ murl() {
 }
 
 #=======================================
-# rootfs 下载/安装
+# rootfs 下载/安装（修复：移除硬编码版本，必须检测）
 #=======================================
 alpine_download() {
     local a="$1" v="$2" m="${3:-tuna}"
-    [ -z "$a" ] || [ "$a" = "auto" ] && { a=$(arch); inf "架构: $a"; }
+    [ -z "$a" ] || [ "$a" = "auto" ] && { a=$(arch) || return 1; inf "架构: $a"; }
     case "$a" in aarch64|armv7|armhf|x86_64|x86) ;; *) err "不支持: $a"; return 1 ;; esac
     local u="$(murl $m)/releases"; inf "镜像: $m"
-    [ -z "$v" ] && {
+    if [ -z "$v" ]; then
         inf "检测版本..."
         v=$(curl -sL "${u}/${a}/" 2>/dev/null | grep -o 'alpine-minirootfs-[0-9.]\+-'"${a}"'.tar.gz' | head -1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
-        v=${v:-3.23.0}; inf "版本: $v"
-    }
-    local f="alpine-minirootfs-${v}-${a}.tar.gz" d="/sdcard/Download"; [ ! -d "$d" ] && d="/tmp"
+        if [ -z "$v" ]; then
+            err "无法检测最新版本，请手动指定版本号"
+            inf "用法: alpine download $a <版本号> $m"
+            return 1
+        fi
+        inf "版本: $v"
+    fi
+    local f="alpine-minirootfs-${v}-${a}.tar.gz" d="/sdcard/Download"
+    mkdir -p "$d" 2>/dev/null || { d="/data/local/tmp"; mkdir -p "$d" 2>/dev/null; }
     local p="${d}/${f}"
     [ -f "$p" ] && inf "文件已存在" || { inf "下载: ${u}/${a}/${f}"; wget -O "$p" "${u}/${a}/${f}" 2>&1 || curl -L -o "$p" "${u}/${a}/${f}" 2>&1 || return 1; }
     alpine_install "$p" && alpine_set_mirror "$m"
@@ -195,7 +230,8 @@ alpine_install() {
     esac || { err "解压失败"; rm -rf "$RF"; return 1; }
     [ ! -d "$RF/bin" ] && { err "结构错误"; rm -rf "$RF"; return 1; }
     mkdir -p "$RF/etc/apk" "$RF/root" "$RF/tmp" "$RF/var/run"
-    chmod 1777 "$RF/tmp" 700 "$RF/root"
+    chmod 1777 "$RF/tmp"
+    chmod 700 "$RF/root"
     alpine_set_mirror tuna
     inf "安装完成，运行: alpine start"
 }
@@ -211,6 +247,44 @@ alpine_set_mirror() {
 }
 
 #=======================================
+# 包管理器镜像配置
+#=======================================
+setup_npm_mirror() {
+    if ! alpine_exec "command -v npm >/dev/null 2>&1"; then
+        inf "安装 npm..."
+        alpine_exec "apk add npm" 2>/dev/null || return
+    fi
+    inf "配置 npm 国内镜像..."
+    alpine_exec "npm config set registry https://registry.npmmirror.com" 2>/dev/null
+    inf "npm 镜像: npmmirror.com"
+}
+
+setup_pip_mirror() {
+    alpine_exec "command -v pip3 >/dev/null 2>&1" && {
+        inf "配置 pip 国内镜像..."
+        alpine_exec "mkdir -p /root && cat > /root/pip.conf << 'EOF'
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple" 2>/dev/null
+        inf "pip 镜像: pypi.tuna.tsinghua.edu.cn"
+        return
+    }
+    # pip 不存在，安装 py3-pip 后配置镜像
+    inf "安装 pip..."
+    alpine_exec "apk add py3-pip" 2>/dev/null || return
+    inf "配置 pip 国内镜像..."
+    alpine_exec "mkdir -p /root && cat > /root/pip.conf << 'EOF'
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple" 2>/dev/null
+    inf "pip 镜像: pypi.tuna.tsinghua.edu.cn"
+}
+
+#=======================================
 # 软件安装
 #=======================================
 alpine_install_packages() {
@@ -223,7 +297,15 @@ alpine_install_packages() {
         all) p="bash vim curl git python3 nodejs gcc openssh htop tree rsync" ;;
         *) p="$1" ;;
     esac
-    inf "安装: $p"; alpine_exec "apk update && apk add $p" || { err "失败"; return 1; }; inf "完成"
+    inf "安装: $p"; alpine_exec "apk update && apk add $p" || { err "失败"; return 1; }
+    # 检测 nodejs/python3，配置包管理器国内镜像
+    case " $p " in
+        *" nodejs "*) setup_npm_mirror ;;
+    esac
+    case " $p " in
+        *" python3 "*) setup_pip_mirror ;;
+    esac
+    inf "完成"
 }
 
 #=======================================
@@ -242,11 +324,15 @@ preset() {
 }
 
 #=======================================
-# 服务管理
+# 服务管理（修复：命令注入风险、子shell问题、服务停止）
 #=======================================
 alpine_service() {
     local cmd="$1" name="$2" arg="$3"
     mkdir -p "$SVC"
+    # 修复：服务名称校验，防止命令注入
+    case "$name" in
+        *[!a-zA-Z0-9_-]*) err "服务名只能包含字母、数字、下划线和连字符"; return 1 ;;
+    esac
     case "$cmd" in
         add)
             [ -z "$name" ] && { err "用法: alpine service add <名称> [命令]"; return 1; }
@@ -274,9 +360,15 @@ EOF
             [ -f "$SVC/$name.service" ] || { err "服务不存在: $name"; return 1; }
             run || alpine_start
             local c=$(grep "^ExecStart=" "$SVC/$name.service" | cut -d= -f2-)
-            inf "启动: $name"; alpine_exec "nohup $c > /var/log/$name.log 2>&1 &"
+            inf "启动: $name"
+            # 记录服务 PID
+            alpine_exec "nohup $c > /var/log/$name.log 2>&1 & echo \$! > /var/run/$name.pid"
             ;;
-        stop) inf "停止: $name"; alpine_exec "pkill -f '$name'" 2>/dev/null ;;
+        stop)
+            inf "停止: $name"
+            # 修复：使用 PID 文件精确停止
+            alpine_exec "if [ -f /var/run/$name.pid ]; then kill \$(cat /var/run/$name.pid) 2>/dev/null; rm -f /var/run/$name.pid; else pkill -f '$name'; fi" 2>/dev/null
+            ;;
         restart) alpine_service stop "$name"; sleep 1; alpine_service start "$name" ;;
         status) alpine_exec "pgrep -f '$name'" >/dev/null 2>&1 && echo -e "$name: ${Gr}运行中${Nc}" || echo -e "$name: ${Rd}未运行${Nc}" ;;
         enable) [ -f "$SVC/$name.service" ] && { touch "$SVC/$name.enabled"; inf "已启用: $name"; } ;;
@@ -288,34 +380,35 @@ EOF
 }
 
 #=======================================
-# 启动已启用服务
+# 启动已启用服务（修复：避免管道子shell）
 #=======================================
 alpine_service_start_all() {
     [ ! -d "$SVC" ] && return
-    ls "$SVC"/*.enabled 2>/dev/null | while read f; do
+    # 修复：使用 for 循环替代管道
+    for f in "$SVC"/*.enabled; do
         [ -f "$f" ] || continue
         alpine_service start "$(basename "$f" .enabled)" 2>/dev/null
     done
 }
 
 #=======================================
-# Shell
+# Shell（修复：使用公共环境变量）
 #=======================================
 alpine_shell() {
     run || { wrn "启动中..."; alpine_start || return 1; }
     local s="/bin/sh"; [ -x "$RF/bin/bash" ] && s="/bin/bash"
     inf "进入 shell"
-    chroot "$RF" /bin/sh -c "export HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=xterm-256color; cd /root; exec $s -l"
+    chroot "$RF" /bin/sh -c "export $CHROOT_ENV; cd /root; exec $s -l"
 }
 
 #=======================================
-# SSH 配置/管理
+# SSH 配置/管理（保持原有逻辑不变）
 #=======================================
 alpine_ssh() {
     run || { err "未运行"; return 1; }
     case "$1" in
         setup|"")
-            local p="${1:-22}" pw="${2:-123456}" pr="${3:-yes}"
+            local p="${2:-22}" pw="${3:-123456}" pr="${4:-yes}"
             run || alpine_start
             inf "安装 OpenSSH..."; alpine_exec "apk update && apk add openssh openssh-server" || return 1
             alpine_exec "ssh-keygen -A" 2>/dev/null

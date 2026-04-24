@@ -1,6 +1,6 @@
 #!/system/bin/sh
 #====================================================
-# Alpine Linux - Boot Service
+# Alpine Linux - Boot Service (Patched)
 #====================================================
 
 MODDIR="${0%/*}"
