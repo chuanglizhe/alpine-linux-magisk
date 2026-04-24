@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Alpine Linux - Common Functions Library v1.3.2 (Patched)
+# Alpine Linux - Common Functions Library v1.3.3
 
 #=======================================
 # 路径配置
@@ -200,7 +200,13 @@ alpine_download() {
     local u="$(murl $m)/releases"; inf "镜像: $m"
     if [ -z "$v" ]; then
         inf "检测版本..."
-        v=$(curl -sL "${u}/${a}/" 2>/dev/null | grep -o 'alpine-minirootfs-[0-9.]\+-'"${a}"'.tar.gz' | head -1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+        # 尝试多个镜像源检测版本（按优先级）
+        for mirror_url in "${u}/${a}/" \
+            "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${a}/" \
+            "https://mirrors.ustc.edu.cn/alpine/latest-stable/releases/${a}/"; do
+            v=$(curl -sL "$mirror_url" 2>/dev/null | grep -o 'alpine-minirootfs-[0-9.]\+-'"${a}"'.tar.gz' | tail -1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+            [ -n "$v" ] && break
+        done
         if [ -z "$v" ]; then
             err "无法检测最新版本，请手动指定版本号"
             inf "用法: alpine download $a <版本号> $m"
@@ -211,7 +217,35 @@ alpine_download() {
     local f="alpine-minirootfs-${v}-${a}.tar.gz" d="/sdcard/Download"
     mkdir -p "$d" 2>/dev/null || { d="/data/local/tmp"; mkdir -p "$d" 2>/dev/null; }
     local p="${d}/${f}"
-    [ -f "$p" ] && inf "文件已存在" || { inf "下载: ${u}/${a}/${f}"; wget -O "$p" "${u}/${a}/${f}" 2>&1 || curl -L -o "$p" "${u}/${a}/${f}" 2>&1 || return 1; }
+    # 检查已有文件完整性（防止之前下载失败保存了HTML错误页面）
+    if [ -f "$p" ]; then
+        local sz
+        sz=$(wc -c < "$p" 2>/dev/null)
+        if [ -z "$sz" ] || [ "$sz" -lt 1048576 ]; then
+            wrn "文件可能损坏(${sz:-0}字节)，重新下载..."
+            rm -f "$p"
+        else
+            inf "文件已存在"
+        fi
+    fi
+    # 下载（仅在文件不存在时）
+    if [ ! -f "$p" ]; then
+        inf "下载: ${u}/${a}/${f}"
+        if ! wget -O "$p" "${u}/${a}/${f}" 2>&1; then
+            rm -f "$p" 2>/dev/null
+            # 下载失败，尝试官方源回退
+            local fallback="https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${a}/${f}"
+            inf "镜像下载失败，尝试官方源: ${fallback}"
+            curl -L -o "$p" "$fallback" 2>&1 || { rm -f "$p"; return 1; }
+        fi
+        # 验证下载文件完整性
+        sz=$(wc -c < "$p" 2>/dev/null)
+        if [ -z "$sz" ] || [ "$sz" -lt 1048576 ]; then
+            err "下载文件可能损坏(${sz:-0}字节)"
+            rm -f "$p"
+            return 1
+        fi
+    fi
     alpine_install "$p" && alpine_set_mirror "$m"
 }
 
@@ -285,6 +319,44 @@ pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple" 2>/de
 }
 
 #=======================================
+# OpenClaw 环境配置
+#=======================================
+setup_openclaw() {
+    alpine_exec "command -v openclaw >/dev/null 2>&1" || return
+    inf "配置 OpenClaw 环境..."
+    # 安装 bash（OpenClaw exec 依赖）
+    alpine_exec "command -v bash >/dev/null 2>&1 || apk add bash" 2>/dev/null
+    # 设置 SHELL 环境变量
+    alpine_exec "grep -q 'SHELL=' /etc/profile 2>/dev/null || echo 'export SHELL=/bin/bash' >> /etc/profile" 2>/dev/null
+    alpine_exec "grep -q 'SHELL=' /root/.bashrc 2>/dev/null || echo 'export SHELL=/bin/bash' >> /root/.bashrc" 2>/dev/null
+    # 配置 exec 权限（合并到已有配置，不覆盖）
+    alpine_exec "mkdir -p /root/.openclaw"
+    local cfg="$RF/root/.openclaw/openclaw.json"
+    if [ -f "$cfg" ]; then
+        # 已有配置，添加 exec 权限
+        if grep -q '"exec"' "$cfg" 2>/dev/null; then
+            # 已有 exec 配置，修改 security 为 allow
+            sed -i 's/"security"[[:space:]]*:[[:space:]]*"[^"]*"/"security": "full"/' "$cfg" 2>/dev/null
+        else
+            # 没有 exec 配置，在 tools 块中添加
+            sed -i 's/"tools"[[:space:]]*:[[:space:]]*{/"tools": {"exec": {"security": "full"},/' "$cfg" 2>/dev/null
+        fi
+    else
+        # 没有配置文件，创建默认配置
+        cat > "$cfg" << 'CONF'
+{
+  "tools": {
+    "exec": {
+      "security": "full"
+    }
+  }
+}
+CONF
+    fi
+    inf "OpenClaw 环境配置完成"
+}
+
+#=======================================
 # 软件安装
 #=======================================
 alpine_install_packages() {
@@ -314,6 +386,7 @@ alpine_install_packages() {
 preset() {
     case "$1" in
         openclaw) echo "openclaw gateway --port 18789" ;;
+        hermes) echo "/root/.hermes/hermes-agent/venv/bin/hermes gateway" ;;
         sshd) echo "/usr/sbin/sshd" ;;
         nginx) echo "nginx" ;;
         redis) echo "redis-server" ;;
@@ -359,6 +432,8 @@ EOF
         start)
             [ -f "$SVC/$name.service" ] || { err "服务不存在: $name"; return 1; }
             run || alpine_start
+            # OpenClaw 启动前自动配置环境
+            [ "$name" = "openclaw" ] && setup_openclaw
             local c=$(grep "^ExecStart=" "$SVC/$name.service" | cut -d= -f2-)
             inf "启动: $name"
             # 记录服务 PID
@@ -434,6 +509,174 @@ EOF
 # 兼容旧函数名
 alpine_setup_ssh() { alpine_ssh setup "$@"; }
 alpine_ssh_manage() { alpine_ssh "$@"; }
+
+#=======================================
+# GitHub 下载加速（自动通过 Gitee 镜像）
+#=======================================
+# Gitee 配置（用户可通过环境变量覆盖）
+GITEE_USER="${GITEE_USER:-}"
+GITEE_TOKEN="${GITEE_TOKEN:-}"
+
+gh_download_repo() {
+    local owner="$1" repo="$2" dest="$3"
+    local gitee_url="https://gitee.com/${owner}/${repo}/repository/archive/main.zip"
+
+    inf "下载 ${owner}/${repo} ..."
+
+    # 1. 尝试直接从 Gitee 下载
+    alpine_exec "mkdir -p /tmp/gh-dl" || return 1
+    inf "尝试 Gitee ..."
+    if alpine_exec "wget -q -O /tmp/gh-dl/repo.zip '${gitee_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${gitee_url}'"; then
+        if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
+            alpine_exec "rm -rf /tmp/gh-dl"
+            inf "下载成功"
+            return 0
+        fi
+    fi
+    alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
+
+    # 2. Gitee 上没有，询问用户是否配置 Gitee 自动导入
+    if [ -z "$GITEE_USER" ] || [ -z "$GITEE_TOKEN" ]; then
+        echo ""
+        echo "Gitee 未配置，配置后可自动从 GitHub 导入加速下载"
+        printf "是否配置 Gitee？[Y/n] "
+        local answer
+        read -r answer 2>/dev/null || answer=""
+        case "$answer" in
+            n|N|no|NO) ;;
+            *)
+                printf "请输入 Gitee 用户名: "
+                read -r GITEE_USER 2>/dev/null
+                printf "请输入 Gitee 私人令牌: "
+                read -r GITEE_TOKEN 2>/dev/null
+                if [ -z "$GITEE_USER" ] || [ -z "$GITEE_TOKEN" ]; then
+                    wrn "输入为空，跳过 Gitee 配置"
+                else
+                    inf "Gitee 配置: $GITEE_USER"
+                fi
+                ;;
+        esac
+    fi
+    if [ -n "$GITEE_USER" ] && [ -n "$GITEE_TOKEN" ]; then
+        inf "Gitee 未找到镜像，自动从 GitHub 导入..."
+        local import_url="https://gitee.com/api/v5/repos/import"
+        local result=$(curl -s -X POST "$import_url" \
+            -d "access_token=${GITEE_TOKEN}" \
+            -d "owner=${GITEE_USER}" \
+            -d "name=${repo}" \
+            -d "repo=https://github.com/${owner}/${repo}.git" \
+            -d "type=github" 2>/dev/null)
+        if echo "$result" | grep -q '"id"'; then
+            inf "正在从 GitHub 导入到 Gitee，等待同步..."
+            # 等待导入完成（最多 120 秒）
+            local i=0
+            while [ $i -lt 24 ]; do
+                sleep 5
+                inf "等待同步... ($((i*5))秒)"
+                # 尝试下载
+                local my_gitee_url="https://gitee.com/${GITEE_USER}/${repo}/repository/archive/main.zip"
+                if alpine_exec "mkdir -p /tmp/gh-dl && wget -q -O /tmp/gh-dl/repo.zip '${my_gitee_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${my_gitee_url}'"; then
+                    if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
+                        alpine_exec "rm -rf /tmp/gh-dl"
+                        inf "导入并下载成功"
+                        return 0
+                    fi
+                fi
+                alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
+                i=$((i+1))
+            done
+            err "导入超时，请稍后手动重试"
+            return 1
+        else
+            err "导入失败: $result"
+            return 1
+        fi
+    fi
+
+    # 3. Gitee 不可用，从 GitHub 下载压缩包
+    inf "尝试 GitHub ..."
+    local gh_url="https://codeload.github.com/${owner}/${repo}/zip/refs/heads/main"
+    alpine_exec "mkdir -p /tmp/gh-dl" || return 1
+    if alpine_exec "wget -q -O /tmp/gh-dl/repo.zip '${gh_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${gh_url}'"; then
+        if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
+            alpine_exec "rm -rf /tmp/gh-dl"
+            inf "GitHub 下载成功"
+            return 0
+        fi
+    fi
+
+    # 4. 压缩包也失败，回退 git clone
+    alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
+    wrn "压缩包下载失败，尝试 git clone ..."
+    alpine_exec "git clone --depth 1 https://github.com/${owner}/${repo}.git '${dest}'" || { alpine_exec "rm -rf ${dest}" 2>/dev/null; err "下载失败，请检查网络"; return 1; }
+}
+
+#=======================================
+# Hermes Agent 一键安装
+#=======================================
+alpine_install_hermes() {
+    run || { wrn "启动中..."; alpine_start || return 1; }
+    inf "========================================"
+    inf " Hermes Agent 一键安装"
+    inf "========================================"
+
+    # 1. 安装系统依赖
+    inf "安装系统依赖..."
+    alpine_exec "apk update && apk add python3 py3-pip python3-dev gcc musl-dev libffi-dev make git nodejs npm ripgrep" || { err "系统依赖安装失败"; return 1; }
+
+    # 2. 配置包管理器国内镜像
+    setup_npm_mirror
+    setup_pip_mirror
+
+    # 3. 下载 Hermes Agent 源码
+    inf "下载 Hermes Agent 源码..."
+    if alpine_exec "[ -d /root/.hermes/hermes-agent ]"; then
+        inf "已有安装，更新中..."
+        alpine_exec "cd /root/.hermes/hermes-agent && git pull --ff-only 2>/dev/null || true"
+    else
+        gh_download_repo "NousResearch" "hermes-agent" "/root/.hermes/hermes-agent" || { err "下载失败，请检查网络"; return 1; }
+    fi
+
+    # 4. 创建虚拟环境
+    inf "创建 Python 虚拟环境..."
+    alpine_exec "cd /root/.hermes/hermes-agent && python3 -m venv venv" || { err "创建虚拟环境失败"; return 1; }
+
+    # 5. 安装 Python 依赖
+    inf "安装 Python 依赖（可能需要几分钟）..."
+    alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install --upgrade pip setuptools wheel" 2>/dev/null
+    alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install -e '.[all]'" || {
+        wrn "完整安装失败，尝试基础安装..."
+        alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install -e '.'" || { err "依赖安装失败"; return 1; }
+    }
+
+    # 6. 安装 Node.js 依赖
+    inf "安装 Node.js 依赖..."
+    alpine_exec "cd /root/.hermes/hermes-agent && npm install --silent" 2>/dev/null || wrn "Node.js 依赖安装失败（浏览器工具可能不可用）"
+
+    # 7. 配置 PATH 和命令链接
+    inf "配置命令..."
+    alpine_exec "ln -sf /root/.hermes/hermes-agent/venv/bin/hermes /usr/local/bin/hermes" 2>/dev/null
+    alpine_exec "grep -q '.hermes' /root/.bashrc || echo 'export PATH=/root/.hermes/hermes-agent/venv/bin:\$PATH' >> /root/.bashrc"
+
+    # 8. 初始化配置目录
+    inf "初始化配置..."
+    alpine_exec "mkdir -p /root/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}"
+    alpine_exec "[ -f /root/.hermes/.env ] || touch /root/.hermes/.env"
+    alpine_exec "[ -f /root/.hermes/config.yaml ] || touch /root/.hermes/config.yaml"
+
+    inf "========================================"
+    inf " Hermes Agent 安装完成！"
+    inf "========================================"
+    inf "使用方法:"
+    inf "  hermes setup    - 配置 API 密钥"
+    inf "  hermes          - 开始对话"
+    inf "  hermes gateway  - 启动网关服务"
+    inf ""
+    inf "配置文件:"
+    inf "  /root/.hermes/.env        - API 密钥"
+    inf "  /root/.hermes/config.yaml - 配置文件"
+    inf "========================================"
+}
 
 #=======================================
 # 模块更新

@@ -40,6 +40,7 @@ rootfs 管理:
 
 软件安装:
   install-pkg [basic|dev|net|tools|all]  安装软件包
+  install-hermes            一键安装 Hermes Agent
 
 服务管理:
   service add <名称> [命令]   创建服务并启用自启
@@ -67,7 +68,8 @@ SSH 服务:
 示例:
   alpine download
   alpine start
-  alpine service add openclaw
+  alpine install-hermes
+  alpine service add hermes
   alpine shell
 
 ROOTFS 路径: $RF
@@ -85,6 +87,7 @@ case "$1" in
     download) shift; alpine_download "$@" ;;
     install) shift; alpine_install "$@" ;;
     install-pkg) shift; alpine_install_packages "$@" ;;
+    install-hermes) alpine_install_hermes ;;
     service) shift; alpine_service "$@" ;;
     ssh) shift; alpine_ssh "$@" ;;
     mirror) shift; alpine_set_mirror "$@" ;;

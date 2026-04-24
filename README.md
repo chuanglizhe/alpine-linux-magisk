@@ -121,7 +121,8 @@ alpine status
 
 | 预设名 | 说明 | 自动启动命令 | 需先安装 |
 |--------|------|--------------|----------|
-| `openclaw` | OpenClaw 网关 | `openclaw gateway --port 18789` | `apk add openclaw` |
+| `openclaw` | OpenClaw 网关 | `openclaw gateway --port 18789` | `npm i -g openclaw` |
+| `hermes` | Hermes Agent 网关 | `hermes gateway` | `alpine install-hermes` |
 | `sshd` | SSH 服务 | `/usr/sbin/sshd` | `alpine ssh` 自动安装 |
 | `nginx` | Web 服务器 | `nginx` | `apk add nginx` |
 | `redis` | 内存数据库 | `redis-server` | `apk add redis` |
@@ -260,6 +261,64 @@ apk add nginx redis mysql
 | `alpine module-version` | 查看模块版本 |
 | `alpine module-upgrade <zip>` | 升级模块 |
 | `alpine help` | 显示帮助 |
+
+### 一键安装 Hermes Agent
+
+```bash
+alpine install-hermes
+```
+
+一键安装 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（Nous Research 开源 AI 代理），自动完成：
+
+| 步骤 | 说明 |
+|------|------|
+| 系统依赖 | python3, nodejs, npm, git, gcc, ripgrep 等 |
+| 包管理器镜像 | pip 清华源 + npm 淘宝源 |
+| 下载源码 | 自动选择最快下载方式 |
+| Python 虚拟环境 | 创建 venv 并安装依赖 |
+| Node.js 依赖 | 安装浏览器工具依赖 |
+| 命令配置 | 创建 `hermes` 命令链接 |
+| 配置初始化 | 创建 `.env`、`config.yaml` 等配置文件 |
+
+#### 下载加速
+
+由于国内访问 GitHub 不稳定，安装时自动按以下顺序尝试下载：
+
+| 优先级 | 方案 | 说明 |
+|--------|------|------|
+| 1 | Gitee 直接下载 | 国内最快最稳 |
+| 2 | Gitee 自动导入 | 交互式输入账号，自动从 GitHub 同步 |
+| 3 | GitHub 压缩包 | codeload 下载，体积小 |
+| 4 | git clone --depth 1 | 浅克隆兜底 |
+
+首次安装时，如果 Gitee 未配置，会自动询问：
+
+```
+是否配置 Gitee？[Y/n] y
+请输入 Gitee 用户名: chuanglizhe1
+请输入 Gitee 私人令牌: xxxxxxxx
+```
+
+> 💡 **提示**：Gitee 令牌在 Gitee → 设置 → 私人令牌 中生成，勾选 `projects` 权限。
+
+#### 安装完成后
+
+```bash
+alpine shell
+
+# 配置 API 密钥
+hermes setup
+
+# 开始对话
+hermes
+
+# 添加为服务（开机自启）
+exit
+alpine service add hermes
+alpine service start hermes
+```
+
+> ⚠️ **注意**：安装过程需要联网，Python 依赖编译可能需要几分钟。
 
 ---
 
