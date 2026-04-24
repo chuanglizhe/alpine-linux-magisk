@@ -646,9 +646,12 @@ alpine_install_hermes() {
         alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install -e '.'" || { err "依赖安装失败"; return 1; }
     }
 
-    # 6. 安装 Node.js 依赖
-    inf "安装 Node.js 依赖（可能需要几分钟）..."
-    alpine_exec "cd /root/.hermes/hermes-agent && npm install" || wrn "Node.js 依赖安装失败（浏览器工具可能不可用）"
+    # 6. 安装 Node.js 依赖（浏览器工具，可选）
+    inf "安装 Node.js 依赖..."
+    alpine_exec "cd /root/.hermes/hermes-agent && npm install" 2>/dev/null || {
+        wrn "Node.js 原生模块编译失败，尝试跳过编译安装..."
+        alpine_exec "cd /root/.hermes/hermes-agent && npm install --ignore-scripts" 2>/dev/null || wrn "Node.js 依赖安装失败（不影响核心功能）"
+    }
 
     # 7. 配置 PATH 和命令链接
     inf "配置命令..."
