@@ -619,7 +619,7 @@ alpine_install_hermes() {
 
     # 1. 安装系统依赖
     inf "安装系统依赖..."
-    alpine_exec "apk update && apk add python3 py3-pip python3-dev gcc musl-dev libffi-dev make git nodejs npm ripgrep" || { err "系统依赖安装失败"; return 1; }
+    alpine_exec "apk update && apk add python3 py3-pip python3-dev gcc g++ musl-dev libffi-dev libolm-dev olm-dev make cmake git nodejs npm ripgrep" || { err "系统依赖安装失败"; return 1; }
 
     # 2. 配置包管理器国内镜像
     setup_npm_mirror
