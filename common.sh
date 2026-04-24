@@ -653,7 +653,7 @@ alpine_install_hermes() {
     # 7. 配置 PATH 和命令链接
     inf "配置命令..."
     alpine_exec "ln -sf /root/.hermes/hermes-agent/venv/bin/hermes /usr/local/bin/hermes" 2>/dev/null
-    alpine_exec "grep -q '.hermes' /root/.bashrc || echo 'export PATH=/root/.hermes/hermes-agent/venv/bin:\$PATH' >> /root/.bashrc"
+    alpine_exec "touch /root/.bashrc && grep -q '.hermes' /root/.bashrc || echo 'export PATH=/root/.hermes/hermes-agent/venv/bin:\$PATH' >> /root/.bashrc"
 
     # 8. 初始化配置目录
     inf "初始化配置..."
