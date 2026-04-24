@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Alpine Linux - Common Functions Library v1.3.3
+# Alpine Linux - Common Functions Library v1.3.4
 
 #=======================================
 # 路径配置
@@ -511,7 +511,7 @@ alpine_setup_ssh() { alpine_ssh setup "$@"; }
 alpine_ssh_manage() { alpine_ssh "$@"; }
 
 #=======================================
-# GitHub 下载加速（自动通过 Gitee 镜像）
+# GitHub 下载加速（多源回退）
 #=======================================
 # Gitee 配置（用户可通过环境变量覆盖）
 GITEE_USER="${GITEE_USER:-}"
@@ -519,26 +519,36 @@ GITEE_TOKEN="${GITEE_TOKEN:-}"
 
 gh_download_repo() {
     local owner="$1" repo="$2" dest="$3"
-    local gitee_url="https://gitee.com/${owner}/${repo}/repository/archive/main.zip"
 
     inf "下载 ${owner}/${repo} ..."
 
-    # 1. 尝试直接从 Gitee 下载
-    alpine_exec "mkdir -p /tmp/gh-dl" || return 1
-    inf "尝试 Gitee ..."
-    if alpine_exec "wget -q -O /tmp/gh-dl/repo.zip '${gitee_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${gitee_url}'"; then
-        if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
-            alpine_exec "rm -rf /tmp/gh-dl"
-            inf "下载成功"
+    # 确保 git 已安装
+    alpine_exec "command -v git >/dev/null 2>&1 || apk add git" 2>/dev/null
+
+    # 1. 尝试 Gitee 镜像（同名仓库）
+    local gitee_repo_url="https://gitee.com/${owner}/${repo}.git"
+    inf "尝试 Gitee 镜像 ..."
+    if alpine_exec "git clone --depth 1 '${gitee_repo_url}' '${dest}'" 2>/dev/null; then
+        inf "Gitee 下载成功"
+        return 0
+    fi
+    alpine_exec "rm -rf '${dest}'" 2>/dev/null
+
+    # 2. 用户配置了 Gitee，尝试从用户仓库克隆
+    if [ -n "$GITEE_USER" ]; then
+        local user_gitee_url="https://gitee.com/${GITEE_USER}/${repo}.git"
+        inf "尝试 Gitee 用户镜像 (${GITEE_USER}) ..."
+        if alpine_exec "git clone --depth 1 '${user_gitee_url}' '${dest}'" 2>/dev/null; then
+            inf "Gitee 用户镜像下载成功"
             return 0
         fi
+        alpine_exec "rm -rf '${dest}'" 2>/dev/null
     fi
-    alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
 
-    # 2. Gitee 上没有，询问用户是否配置 Gitee 自动导入
+    # 3. 询问是否配置 Gitee（仅当未配置时）
     if [ -z "$GITEE_USER" ] || [ -z "$GITEE_TOKEN" ]; then
         echo ""
-        echo "Gitee 未配置，配置后可自动从 GitHub 导入加速下载"
+        echo "GitHub 下载可能较慢，配置 Gitee 可加速下载"
         printf "是否配置 Gitee？[Y/n] "
         local answer
         read -r answer 2>/dev/null || answer=""
@@ -557,46 +567,42 @@ gh_download_repo() {
                 ;;
         esac
     fi
+
+    # 4. 配置了 Gitee，自动创建镜像仓库并同步
     if [ -n "$GITEE_USER" ] && [ -n "$GITEE_TOKEN" ]; then
-        inf "Gitee 未找到镜像，自动从 GitHub 导入..."
-        local import_url="https://gitee.com/api/v5/repos/import"
-        local result=$(curl -s -X POST "$import_url" \
+        inf "尝试在 Gitee 创建镜像 ..."
+        # 创建 Gitee 仓库（带 import_url 自动从 GitHub 导入）
+        local create_result
+        create_result=$(curl -s -X POST "https://gitee.com/api/v5/user/repos" \
             -d "access_token=${GITEE_TOKEN}" \
-            -d "owner=${GITEE_USER}" \
             -d "name=${repo}" \
-            -d "repo=https://github.com/${owner}/${repo}.git" \
-            -d "type=github" 2>/dev/null)
-        if echo "$result" | grep -q '"id"'; then
+            -d "private=true" \
+            -d "auto_init=false" \
+            -d "import_url=https://github.com/${owner}/${repo}.git" 2>/dev/null)
+        if echo "$create_result" | grep -q '"id"'; then
             inf "正在从 GitHub 导入到 Gitee，等待同步..."
-            # 等待导入完成（最多 120 秒）
             local i=0
             while [ $i -lt 24 ]; do
                 sleep 5
                 inf "等待同步... ($((i*5))秒)"
-                # 尝试下载
-                local my_gitee_url="https://gitee.com/${GITEE_USER}/${repo}/repository/archive/main.zip"
-                if alpine_exec "mkdir -p /tmp/gh-dl && wget -q -O /tmp/gh-dl/repo.zip '${my_gitee_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${my_gitee_url}'"; then
-                    if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
-                        alpine_exec "rm -rf /tmp/gh-dl"
-                        inf "导入并下载成功"
-                        return 0
-                    fi
+                local user_gitee_url="https://gitee.com/${GITEE_USER}/${repo}.git"
+                if alpine_exec "git clone --depth 1 '${user_gitee_url}' '${dest}'" 2>/dev/null; then
+                    inf "Gitee 镜像下载成功"
+                    return 0
                 fi
-                alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
+                alpine_exec "rm -rf '${dest}'" 2>/dev/null
                 i=$((i+1))
             done
-            err "导入超时，请稍后手动重试"
-            return 1
+            wrn "Gitee 导入超时，回退到 GitHub"
         else
-            err "导入失败: $result"
-            return 1
+            wrn "Gitee 创建仓库失败，回退到 GitHub"
         fi
     fi
 
-    # 3. Gitee 不可用，从 GitHub 下载压缩包
-    inf "尝试 GitHub ..."
+    # 5. GitHub codeload 下载压缩包
+    inf "尝试 GitHub codeload ..."
+    alpine_exec "mkdir -p /tmp/gh-dl" 2>/dev/null
     local gh_url="https://codeload.github.com/${owner}/${repo}/zip/refs/heads/main"
-    alpine_exec "mkdir -p /tmp/gh-dl" || return 1
     if alpine_exec "wget -q -O /tmp/gh-dl/repo.zip '${gh_url}' 2>/dev/null || curl -sL -o /tmp/gh-dl/repo.zip '${gh_url}'"; then
         if alpine_exec "mkdir -p '${dest}' && cd /tmp/gh-dl && unzip -q -o repo.zip -d extracted 2>/dev/null && cp -r extracted/*/* '${dest}'/ 2>/dev/null || cp -r extracted/* '${dest}'/ 2>/dev/null"; then
             alpine_exec "rm -rf /tmp/gh-dl"
@@ -604,11 +610,11 @@ gh_download_repo() {
             return 0
         fi
     fi
-
-    # 4. 压缩包也失败，回退 git clone
     alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
-    wrn "压缩包下载失败，尝试 git clone ..."
-    alpine_exec "git clone --depth 1 https://github.com/${owner}/${repo}.git '${dest}'" || { alpine_exec "rm -rf ${dest}" 2>/dev/null; err "下载失败，请检查网络"; return 1; }
+
+    # 6. 最后回退：git clone
+    inf "尝试 git clone ..."
+    alpine_exec "git clone --depth 1 https://github.com/${owner}/${repo}.git '${dest}'" || { alpine_exec "rm -rf '${dest}'" 2>/dev/null; err "下载失败，请检查网络"; return 1; }
 }
 
 #=======================================

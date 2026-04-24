@@ -2,7 +2,7 @@
 
 在 Android 设备上以 chroot 方式运行 Alpine Linux 的 Magisk 模块。
 
-**版本：v1.3.2**
+**版本：v1.3.4**
 
 ---
 
@@ -286,10 +286,11 @@ alpine install-hermes
 
 | 优先级 | 方案 | 说明 |
 |--------|------|------|
-| 1 | Gitee 直接下载 | 国内最快最稳 |
-| 2 | Gitee 自动导入 | 交互式输入账号，自动从 GitHub 同步 |
-| 3 | GitHub 压缩包 | codeload 下载，体积小 |
-| 4 | git clone --depth 1 | 浅克隆兜底 |
+| 1 | Gitee 镜像克隆 | 尝试同名仓库的 Gitee 镜像 |
+| 2 | Gitee 用户镜像 | 从用户 Gitee 账号下的镜像克隆 |
+| 3 | Gitee 自动创建镜像 | 交互输入账号，自动创建 Gitee 镜像仓库 |
+| 4 | GitHub 压缩包 | codeload 下载，体积小 |
+| 5 | git clone --depth 1 | 浅克隆兜底 |
 
 首次安装时，如果 Gitee 未配置，会自动询问：
 
@@ -299,7 +300,7 @@ alpine install-hermes
 请输入 Gitee 私人令牌: xxxxxxxx
 ```
 
-> 💡 **提示**：Gitee 令牌在 Gitee → 设置 → 私人令牌 中生成，勾选 `projects` 权限。
+> 💡 **提示**：Gitee 令牌在 Gitee → 设置 → 私人令牌 中生成，勾选 `projects` 权限。配置后模块会自动在 Gitee 创建私有镜像仓库并从 GitHub 同步，后续下载走 Gitee 国内线路。
 
 #### 安装完成后
 
