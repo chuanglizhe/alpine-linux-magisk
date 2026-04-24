@@ -619,7 +619,7 @@ alpine_install_hermes() {
 
     # 1. 安装系统依赖
     inf "安装系统依赖..."
-    alpine_exec "apk update && apk add python3 py3-pip python3-dev gcc g++ musl-dev libffi-dev olm-dev make cmake git nodejs npm ripgrep" || { err "系统依赖安装失败"; return 1; }
+    alpine_exec "apk update && apk add python3 py3-pip python3-dev gcc g++ musl-dev libffi-dev olm-dev py3-olm make cmake samurai pkgconf git nodejs npm ripgrep" || { err "系统依赖安装失败"; return 1; }
 
     # 2. 配置包管理器国内镜像
     setup_npm_mirror
@@ -636,7 +636,7 @@ alpine_install_hermes() {
 
     # 4. 创建虚拟环境
     inf "创建 Python 虚拟环境..."
-    alpine_exec "cd /root/.hermes/hermes-agent && python3 -m venv venv" || { err "创建虚拟环境失败"; return 1; }
+    alpine_exec "cd /root/.hermes/hermes-agent && python3 -m venv venv --system-site-packages" || { err "创建虚拟环境失败"; return 1; }
 
     # 5. 安装 Python 依赖
     inf "安装 Python 依赖（可能需要几分钟）..."
