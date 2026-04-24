@@ -286,11 +286,10 @@ alpine install-hermes
 
 | 优先级 | 方案 | 说明 |
 |--------|------|------|
-| 1 | Gitee 镜像克隆 | 尝试同名仓库的 Gitee 镜像 |
-| 2 | Gitee 用户镜像 | 从用户 Gitee 账号下的镜像克隆 |
-| 3 | Gitee 自动创建镜像 | 交互输入账号，自动创建 Gitee 镜像仓库 |
-| 4 | GitHub 压缩包 | codeload 下载，体积小 |
-| 5 | git clone --depth 1 | 浅克隆兜底 |
+| 1 | Gitee 用户镜像 | 从用户 Gitee 账号下的镜像克隆 |
+| 2 | Gitee 自动创建镜像 | 交互输入账号，自动创建 Gitee 镜像仓库 |
+| 3 | GitHub 压缩包 | codeload 下载，体积小 |
+| 4 | git clone --depth 1 | 浅克隆兜底 |
 
 首次安装时，如果 Gitee 未配置，会自动询问：
 

@@ -525,16 +525,7 @@ gh_download_repo() {
     # 确保 git 已安装
     alpine_exec "command -v git >/dev/null 2>&1 || apk add git" 2>/dev/null
 
-    # 1. 尝试 Gitee 镜像（同名仓库）
-    local gitee_repo_url="https://gitee.com/${owner}/${repo}.git"
-    inf "尝试 Gitee 镜像 ..."
-    if alpine_exec "git clone --depth 1 '${gitee_repo_url}' '${dest}'" 2>/dev/null; then
-        inf "Gitee 下载成功"
-        return 0
-    fi
-    alpine_exec "rm -rf '${dest}'" 2>/dev/null
-
-    # 2. 用户配置了 Gitee，尝试从用户仓库克隆
+    # 1. 用户配置了 Gitee，尝试从用户仓库克隆
     if [ -n "$GITEE_USER" ]; then
         local user_gitee_url="https://gitee.com/${GITEE_USER}/${repo}.git"
         inf "尝试 Gitee 用户镜像 (${GITEE_USER}) ..."
@@ -545,7 +536,7 @@ gh_download_repo() {
         alpine_exec "rm -rf '${dest}'" 2>/dev/null
     fi
 
-    # 3. 询问是否配置 Gitee（仅当未配置时）
+    # 2. 询问是否配置 Gitee（仅当未配置时）
     if [ -z "$GITEE_USER" ] || [ -z "$GITEE_TOKEN" ]; then
         echo ""
         echo "GitHub 下载可能较慢，配置 Gitee 可加速下载"
@@ -568,7 +559,7 @@ gh_download_repo() {
         esac
     fi
 
-    # 4. 配置了 Gitee，自动创建镜像仓库并同步
+    # 3. 配置了 Gitee，自动创建镜像仓库并同步
     if [ -n "$GITEE_USER" ] && [ -n "$GITEE_TOKEN" ]; then
         inf "尝试在 Gitee 创建镜像 ..."
         # 创建 Gitee 仓库（带 import_url 自动从 GitHub 导入）
@@ -599,7 +590,7 @@ gh_download_repo() {
         fi
     fi
 
-    # 5. GitHub codeload 下载压缩包
+    # 4. GitHub codeload 下载压缩包
     inf "尝试 GitHub codeload ..."
     alpine_exec "mkdir -p /tmp/gh-dl" 2>/dev/null
     local gh_url="https://codeload.github.com/${owner}/${repo}/zip/refs/heads/main"
@@ -612,7 +603,7 @@ gh_download_repo() {
     fi
     alpine_exec "rm -rf /tmp/gh-dl" 2>/dev/null
 
-    # 6. 最后回退：git clone
+    # 5. 最后回退：git clone
     inf "尝试 git clone ..."
     alpine_exec "git clone --depth 1 https://github.com/${owner}/${repo}.git '${dest}'" || { alpine_exec "rm -rf '${dest}'" 2>/dev/null; err "下载失败，请检查网络"; return 1; }
 }
