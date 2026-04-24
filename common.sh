@@ -640,15 +640,15 @@ alpine_install_hermes() {
 
     # 5. 安装 Python 依赖
     inf "安装 Python 依赖（可能需要几分钟）..."
-    alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install --upgrade pip setuptools wheel" 2>/dev/null
+    alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install --upgrade pip setuptools wheel"
     alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install -e '.[all]'" || {
         wrn "完整安装失败，尝试基础安装..."
         alpine_exec "cd /root/.hermes/hermes-agent && ./venv/bin/pip install -e '.'" || { err "依赖安装失败"; return 1; }
     }
 
     # 6. 安装 Node.js 依赖
-    inf "安装 Node.js 依赖..."
-    alpine_exec "cd /root/.hermes/hermes-agent && npm install --silent" 2>/dev/null || wrn "Node.js 依赖安装失败（浏览器工具可能不可用）"
+    inf "安装 Node.js 依赖（可能需要几分钟）..."
+    alpine_exec "cd /root/.hermes/hermes-agent && npm install" || wrn "Node.js 依赖安装失败（浏览器工具可能不可用）"
 
     # 7. 配置 PATH 和命令链接
     inf "配置命令..."
